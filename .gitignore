@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# SQLite
+*.db
+
+# Environment variables
+.env
+.env.local
+
+# Vercel
+.vercel
+
+# Claude
+.claude
+
+
+
