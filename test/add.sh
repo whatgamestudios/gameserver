@@ -6,8 +6,13 @@ if [ -f "$SCRIPT_DIR/../.env" ]; then
   set +a
 fi
 BASE_URL="${BASE_URL:-http://localhost:8000}"
+echo Base URL: ${BASE_URL}
 
-curl -s -X POST "$BASE_URL/rpc" \
+#curl -s -X POST "$BASE_URL/rpc" \
+#  -H "Content-Type: application/json" \
+#  -d '{"jsonrpc":"2.0","method":"add","params":{"words":["apple","banana","cherry"]},"id":1}' \
+#  | python3 -m json.tool
+
+curl -v -s -X POST "$BASE_URL/rpc" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"add","params":{"words":["apple","banana","cherry"]},"id":1}' \
-  | python3 -m json.tool
+  -d '{"jsonrpc":"2.0","method":"add","params":{"words":["apple","banana","cherry"]},"id":1}'
