@@ -696,14 +696,6 @@ HTML = """<!DOCTYPE html>
     </section>
 
     <section>
-      <h2>Add Words</h2>
-      <p class="hint">Enter one word per line.</p>
-      <textarea id="add-input" placeholder="apple&#10;banana&#10;cherry"></textarea>
-      <button id="add-btn" onclick="addWords()">Add</button>
-      <div id="add-results" class="results"></div>
-    </section>
-
-    <section>
       <h2>Game Day</h2>
 
       <div class="subsection">
@@ -864,40 +856,6 @@ HTML = """<!DOCTYPE html>
               <span class="badge">${found ? 'Found' : 'Not found'}</span>
               <span>${escHtml(word)}</span>
             </div>`).join('');
-        }
-      } catch (e) {
-        out.innerHTML = `<p class="error-msg">Request failed.</p>`;
-      } finally {
-        btn.disabled = false;
-      }
-    }
-
-    async function addWords() {
-      const words = parseWords('add-input');
-      const out = document.getElementById('add-results');
-      if (!words.length) { out.innerHTML = ''; return; }
-
-      const btn = document.getElementById('add-btn');
-      btn.disabled = true;
-      try {
-        const data = await rpc('add', {words});
-        if (data.error) {
-          out.innerHTML = `<p class="error-msg">Error: ${data.error.message}</p>`;
-        } else {
-          const {added, already_exists} = data.result;
-          const rows = [
-            ...added.map(w => `
-              <div class="result-row added">
-                <span class="badge">Added</span>
-                <span>${escHtml(w)}</span>
-              </div>`),
-            ...already_exists.map(w => `
-              <div class="result-row existed">
-                <span class="badge">Already exists</span>
-                <span>${escHtml(w)}</span>
-              </div>`),
-          ];
-          out.innerHTML = rows.join('');
         }
       } catch (e) {
         out.innerHTML = `<p class="error-msg">Request failed.</p>`;
