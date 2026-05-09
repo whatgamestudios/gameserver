@@ -42,8 +42,8 @@ def _result(result: Any, req_id: Any = None) -> JSONResponse:
     return JSONResponse({"jsonrpc": "2.0", "result": result, "id": req_id})
 
 
-@app.get("/", response_class=HTMLResponse)
-def index():
+@app.get("/worcadian", response_class=HTMLResponse)
+def worcadian():
     return HTML
 
 
