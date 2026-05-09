@@ -426,6 +426,46 @@ def _rpc(req: RpcRequest):
                         "calculated_score": calculated_score,
                         "words": words, "in_dictionary": in_dictionary}, req.id)
 
+    elif req.method == "board.import":
+        params = req.params or {}
+        game_day = params.get("game_day")
+        board = params.get("board")
+        player = params.get("player")
+        if not isinstance(game_day, int):
+            return _error(-32602, "params.game_day must be an integer", req.id)
+        if not isinstance(board, str):
+            return _error(-32602, "params.board must be a string", req.id)
+        if not isinstance(player, str) or not player.strip():
+            return _error(-32602, "params.player must be a non-empty string", req.id)
+        if len(board) != BOARD_SIZE * BOARD_SIZE:
+            return _error(-32602, f"params.board must be exactly {BOARD_SIZE * BOARD_SIZE} characters", req.id)
+        player = player.strip()
+
+        # Skip duplicate (same day + player + board already stored)
+        with engine.connect() as conn:
+            already = conn.execute(
+                sa.select(sa.func.count()).select_from(submissions)
+                .where(submissions.c.game_day == game_day)
+                .where(submissions.c.player == player)
+                .where(submissions.c.board == board)
+            ).scalar() or 0
+        if already:
+            return _result({"status": "duplicate", "game_day": game_day, "player": player}, req.id)
+
+        words = _analyse_board(board)
+        in_dictionary = _check_words_in_db(words)
+        calculated_score = _calculate_score(words, in_dictionary)
+
+        with engine.begin() as conn:
+            conn.execute(submissions.insert().values(
+                game_day=game_day, score=calculated_score,
+                player=player, board=board,
+            ))
+
+        return _result({"status": "imported", "game_day": game_day, "player": player,
+                        "calculated_score": calculated_score,
+                        "words": words, "in_dictionary": in_dictionary}, req.id)
+
     elif req.method == "board.results":
         game_day = (req.params or {}).get("game_day")
         if not isinstance(game_day, int):
