@@ -1,4 +1,5 @@
 import os
+import time
 from typing import Any, Dict, List, Optional, Union
 
 import sqlalchemy as sa
@@ -14,6 +15,21 @@ if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is not set")
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = sa.create_engine(DATABASE_URL, connect_args=_connect_args)
+
+# GMT Monday March 30, 2026 00:00:00 UTC — mirrors Solidity UNIX_TIME_GAME_START
+_GAME_START = 1774828800
+_SECONDS_PER_DAY = 86400
+_PLUS_FOURTEEN = 50400   # GMT+14: Kiribati Line Islands
+_MINUS_TWELVE = 43200    # GMT-12: Baker and Howard Island
+
+
+def _current_game_days() -> tuple[int, int]:
+    """Return (min_day, max_day) for the current moment, matching determineCurrentGameDays()."""
+    now = int(time.time())
+    max_day = (now + _PLUS_FOURTEEN - _GAME_START) // _SECONDS_PER_DAY
+    min_day = (now - _MINUS_TWELVE - _GAME_START) // _SECONDS_PER_DAY
+    return min_day, max_day
+
 
 metadata = sa.MetaData()
 wordlist = sa.Table(
@@ -137,6 +153,18 @@ def _rpc(req: RpcRequest):
                     conn.execute(seedwords.insert().values(day=e["day"], word=e["word"]))
 
         return _result({"set": [e["day"] for e in entries]}, req.id)
+
+    elif req.method == "gameday.current":
+        min_day, max_day = _current_game_days()
+        return _result({"min_day": min_day, "max_day": max_day}, req.id)
+
+    elif req.method == "gameday.check":
+        day = (req.params or {}).get("day")
+        if not isinstance(day, int):
+            return _error(-32602, "params.day must be an integer", req.id)
+        min_day, max_day = _current_game_days()
+        valid = min_day <= day <= max_day
+        return _result({"valid": valid, "requested_day": day, "min_day": min_day, "max_day": max_day}, req.id)
 
     elif req.method == "seedwords.check":
         days = (req.params or {}).get("days")
