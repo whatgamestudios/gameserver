@@ -299,32 +299,6 @@ def _rpc(req: RpcRequest):
         already_exists = [w for w in words if w in existing]
         return _result({"added": new_words, "already_exists": already_exists}, req.id)
 
-    elif req.method == "seedwords.set":
-        entries = (req.params or {}).get("entries")
-        if not isinstance(entries, list) or not entries:
-            return _error(-32602, "params.entries must be a non-empty list of {day, word} objects", req.id)
-        for e in entries:
-            if not isinstance(e.get("day"), int) or not isinstance(e.get("word"), str):
-                return _error(-32602, "each entry must have an integer 'day' and a string 'word'", req.id)
-        entries = [{"day": e["day"], "word": e["word"].upper()} for e in entries]
-
-        with engine.begin() as conn:
-            existing_days = {
-                row[0]
-                for row in conn.execute(
-                    sa.select(seedwords.c.day).where(seedwords.c.day.in_([e["day"] for e in entries]))
-                ).fetchall()
-            }
-            for e in entries:
-                if e["day"] in existing_days:
-                    conn.execute(
-                        seedwords.update().where(seedwords.c.day == e["day"]).values(word=e["word"])
-                    )
-                else:
-                    conn.execute(seedwords.insert().values(day=e["day"], word=e["word"]))
-
-        return _result({"set": [e["day"] for e in entries]}, req.id)
-
     elif req.method == "analyse":
         board = (req.params or {}).get("board")
         if not isinstance(board, str):
@@ -847,16 +821,6 @@ HTML = """<!DOCTYPE html>
       <h2>Seed Words</h2>
 
       <div class="subsection">
-        <h3>Set Seed Words</h3>
-        <p class="hint">Enter one <code>day:word</code> pair per line.</p>
-        <textarea id="sw-set-input" placeholder="1:apple&#10;2:banana&#10;3:cherry"></textarea>
-        <button id="sw-set-btn" onclick="setSeedWords()">Set</button>
-        <div id="sw-set-results" class="results"></div>
-      </div>
-
-      <hr>
-
-      <div class="subsection">
         <h3>Check Seed Words</h3>
         <p class="hint">Enter one day number per line.</p>
         <textarea id="sw-check-input" placeholder="1&#10;2&#10;3"></textarea>
@@ -934,47 +898,6 @@ HTML = """<!DOCTYPE html>
               </div>`),
           ];
           out.innerHTML = rows.join('');
-        }
-      } catch (e) {
-        out.innerHTML = `<p class="error-msg">Request failed.</p>`;
-      } finally {
-        btn.disabled = false;
-      }
-    }
-
-    async function setSeedWords() {
-      const lines = parseWords('sw-set-input');
-      const out = document.getElementById('sw-set-results');
-      if (!lines.length) { out.innerHTML = ''; return; }
-
-      const entries = [];
-      for (const line of lines) {
-        const colon = line.indexOf(':');
-        if (colon === -1) {
-          out.innerHTML = `<p class="error-msg">Invalid format: "${escHtml(line)}" — expected day:word</p>`;
-          return;
-        }
-        const day = parseInt(line.slice(0, colon).trim(), 10);
-        const word = line.slice(colon + 1).trim();
-        if (isNaN(day) || !word) {
-          out.innerHTML = `<p class="error-msg">Invalid entry: "${escHtml(line)}" — day must be an integer and word must not be empty</p>`;
-          return;
-        }
-        entries.push({day, word});
-      }
-
-      const btn = document.getElementById('sw-set-btn');
-      btn.disabled = true;
-      try {
-        const data = await rpc('seedwords.set', {entries});
-        if (data.error) {
-          out.innerHTML = `<p class="error-msg">Error: ${data.error.message}</p>`;
-        } else {
-          out.innerHTML = entries.map(({day, word}) => `
-            <div class="result-row set">
-              <span class="badge">Set</span>
-              <span>Day ${escHtml(String(day))}: ${escHtml(word)}</span>
-            </div>`).join('');
         }
       } catch (e) {
         out.innerHTML = `<p class="error-msg">Request failed.</p>`;
