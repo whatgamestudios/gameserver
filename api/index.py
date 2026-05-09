@@ -22,6 +22,13 @@ wordlist = sa.Table(
     sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
     sa.Column("word", sa.String, unique=True, nullable=False),
 )
+seedwords = sa.Table(
+    "seedwords",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("day", sa.Integer, unique=True, nullable=False),
+    sa.Column("word", sa.String, nullable=False),
+)
 metadata.create_all(engine)
 
 app = FastAPI()
@@ -106,6 +113,45 @@ def _rpc(req: RpcRequest):
         already_exists = [w for w in words if w in existing]
         return _result({"added": new_words, "already_exists": already_exists}, req.id)
 
+    elif req.method == "seedwords.set":
+        entries = (req.params or {}).get("entries")
+        if not isinstance(entries, list) or not entries:
+            return _error(-32602, "params.entries must be a non-empty list of {day, word} objects", req.id)
+        for e in entries:
+            if not isinstance(e.get("day"), int) or not isinstance(e.get("word"), str):
+                return _error(-32602, "each entry must have an integer 'day' and a string 'word'", req.id)
+
+        with engine.begin() as conn:
+            existing_days = {
+                row[0]
+                for row in conn.execute(
+                    sa.select(seedwords.c.day).where(seedwords.c.day.in_([e["day"] for e in entries]))
+                ).fetchall()
+            }
+            for e in entries:
+                if e["day"] in existing_days:
+                    conn.execute(
+                        seedwords.update().where(seedwords.c.day == e["day"]).values(word=e["word"])
+                    )
+                else:
+                    conn.execute(seedwords.insert().values(day=e["day"], word=e["word"]))
+
+        return _result({"set": [e["day"] for e in entries]}, req.id)
+
+    elif req.method == "seedwords.check":
+        days = (req.params or {}).get("days")
+        if not isinstance(days, list) or not days:
+            return _error(-32602, "params.days must be a non-empty list of integers", req.id)
+        if not all(isinstance(d, int) for d in days):
+            return _error(-32602, "all values in params.days must be integers", req.id)
+
+        with engine.connect() as conn:
+            rows = conn.execute(
+                sa.select(seedwords.c.day, seedwords.c.word).where(seedwords.c.day.in_(days))
+            ).fetchall()
+        found = {row[0]: row[1] for row in rows}
+        return _result({d: found.get(d) for d in days}, req.id)
+
     else:
         return _error(-32601, f"Method not found: {req.method}", req.id)
 
@@ -129,7 +175,8 @@ HTML = """<!DOCTYPE html>
     }
     .container { width: 100%; max-width: 640px; }
     h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 2rem; }
-    h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.75rem; }
+    h2 { font-size: 1.25rem; font-weight: 700; margin-bottom: 1rem; color: #333; }
+    h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.75rem; }
     section {
       background: #fff;
       border: 1px solid #e0e0e0;
@@ -181,8 +228,12 @@ HTML = """<!DOCTYPE html>
     .not-found .badge { background: #fee2e2; color: #991b1b; }
     .added .badge { background: #dbeafe; color: #1e40af; }
     .existed .badge { background: #f3f4f6; color: #374151; }
+    .set .badge { background: #dbeafe; color: #1e40af; }
     .error-msg { color: #991b1b; font-size: 0.875rem; margin-top: 0.75rem; }
     .hint { font-size: 0.8rem; color: #666; margin-bottom: 0.75rem; }
+    .subsection { margin-bottom: 1.5rem; }
+    .subsection:last-child { margin-bottom: 0; }
+    hr { border: none; border-top: 1px solid #e0e0e0; margin: 1.25rem 0; }
   </style>
 </head>
 <body>
@@ -203,6 +254,28 @@ HTML = """<!DOCTYPE html>
       <textarea id="add-input" placeholder="apple&#10;banana&#10;cherry"></textarea>
       <button id="add-btn" onclick="addWords()">Add</button>
       <div id="add-results" class="results"></div>
+    </section>
+
+    <section>
+      <h2>Seed Words</h2>
+
+      <div class="subsection">
+        <h3>Set Seed Words</h3>
+        <p class="hint">Enter one <code>day:word</code> pair per line.</p>
+        <textarea id="sw-set-input" placeholder="1:apple&#10;2:banana&#10;3:cherry"></textarea>
+        <button id="sw-set-btn" onclick="setSeedWords()">Set</button>
+        <div id="sw-set-results" class="results"></div>
+      </div>
+
+      <hr>
+
+      <div class="subsection">
+        <h3>Check Seed Words</h3>
+        <p class="hint">Enter one day number per line.</p>
+        <textarea id="sw-check-input" placeholder="1&#10;2&#10;3"></textarea>
+        <button id="sw-check-btn" onclick="checkSeedWords()">Check</button>
+        <div id="sw-check-results" class="results"></div>
+      </div>
     </section>
   </div>
 
@@ -274,6 +347,82 @@ HTML = """<!DOCTYPE html>
               </div>`),
           ];
           out.innerHTML = rows.join('');
+        }
+      } catch (e) {
+        out.innerHTML = `<p class="error-msg">Request failed.</p>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function setSeedWords() {
+      const lines = parseWords('sw-set-input');
+      const out = document.getElementById('sw-set-results');
+      if (!lines.length) { out.innerHTML = ''; return; }
+
+      const entries = [];
+      for (const line of lines) {
+        const colon = line.indexOf(':');
+        if (colon === -1) {
+          out.innerHTML = `<p class="error-msg">Invalid format: "${escHtml(line)}" — expected day:word</p>`;
+          return;
+        }
+        const day = parseInt(line.slice(0, colon).trim(), 10);
+        const word = line.slice(colon + 1).trim();
+        if (isNaN(day) || !word) {
+          out.innerHTML = `<p class="error-msg">Invalid entry: "${escHtml(line)}" — day must be an integer and word must not be empty</p>`;
+          return;
+        }
+        entries.push({day, word});
+      }
+
+      const btn = document.getElementById('sw-set-btn');
+      btn.disabled = true;
+      try {
+        const data = await rpc('seedwords.set', {entries});
+        if (data.error) {
+          out.innerHTML = `<p class="error-msg">Error: ${data.error.message}</p>`;
+        } else {
+          out.innerHTML = entries.map(({day, word}) => `
+            <div class="result-row set">
+              <span class="badge">Set</span>
+              <span>Day ${escHtml(String(day))}: ${escHtml(word)}</span>
+            </div>`).join('');
+        }
+      } catch (e) {
+        out.innerHTML = `<p class="error-msg">Request failed.</p>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function checkSeedWords() {
+      const lines = parseWords('sw-check-input');
+      const out = document.getElementById('sw-check-results');
+      if (!lines.length) { out.innerHTML = ''; return; }
+
+      const days = [];
+      for (const line of lines) {
+        const day = parseInt(line, 10);
+        if (isNaN(day)) {
+          out.innerHTML = `<p class="error-msg">Invalid day number: "${escHtml(line)}"</p>`;
+          return;
+        }
+        days.push(day);
+      }
+
+      const btn = document.getElementById('sw-check-btn');
+      btn.disabled = true;
+      try {
+        const data = await rpc('seedwords.check', {days});
+        if (data.error) {
+          out.innerHTML = `<p class="error-msg">Error: ${data.error.message}</p>`;
+        } else {
+          out.innerHTML = Object.entries(data.result).map(([day, word]) => `
+            <div class="result-row ${word !== null ? 'found' : 'not-found'}">
+              <span class="badge">${word !== null ? 'Found' : 'Not found'}</span>
+              <span>Day ${escHtml(day)}: ${word !== null ? escHtml(word) : '—'}</span>
+            </div>`).join('');
         }
       } catch (e) {
         out.innerHTML = `<p class="error-msg">Request failed.</p>`;
