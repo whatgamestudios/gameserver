@@ -814,6 +814,14 @@ NUMBERS14_HTML = """<!DOCTYPE html>
     </section>
 
     <section>
+      <h2>Target Number</h2>
+      <p class="hint">Returns the target number for a specific game day (range: 250–999).</p>
+      <input id="tn-day" type="number" placeholder="Game day">
+      <button id="tn-btn" onclick="getTargetNumber()">Get Target</button>
+      <div id="tn-results" class="results"></div>
+    </section>
+
+    <section>
       <h2>Check-In</h2>
 
       <div class="subsection">
@@ -865,6 +873,30 @@ NUMBERS14_HTML = """<!DOCTYPE html>
         body: JSON.stringify({jsonrpc: '2.0', method, params, id: 1}),
       });
       return res.json();
+    }
+
+    async function getTargetNumber() {
+      const out = document.getElementById('tn-results');
+      const game_day = parseInt(document.getElementById('tn-day').value, 10);
+      if (isNaN(game_day)) { out.innerHTML = `<p class="error-msg">Game day must be an integer.</p>`; return; }
+      const btn = document.getElementById('tn-btn');
+      btn.disabled = true;
+      try {
+        const data = await rpc('target.get', {game_day});
+        if (data.error) {
+          out.innerHTML = `<p class="error-msg">Error: ${data.error.message}</p>`;
+        } else {
+          out.innerHTML = `
+            <div class="result-row found">
+              <span class="badge">Target</span>
+              <span>Day ${game_day}: ${data.result.target}</span>
+            </div>`;
+        }
+      } catch (e) {
+        out.innerHTML = `<p class="error-msg">Request failed.</p>`;
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     async function getGameDayCurrent() {

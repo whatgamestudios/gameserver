@@ -16,6 +16,7 @@ from board import (
     _current_game_days,
     _is_seed_word_on_board,
 )
+from numbers import get_target_value
 from templates import INDEX_HTML, WORCADIAN_HTML, NUMBERS14_HTML
 
 _FIVE_YEARS_OF_DAYS = 1826  # mirrors Solidity FIVE_YEARS_OF_DAYS
@@ -84,6 +85,12 @@ def _rpc_14_handler(req: RpcRequest):
         min_day, max_day = _current_game_days(_14_GAME_START)
         valid = min_day <= day <= max_day
         return _result({"valid": valid, "requested_day": day, "min_day": min_day, "max_day": max_day}, req.id)
+
+    elif req.method == "target.get":
+        game_day = (req.params or {}).get("game_day")
+        if not isinstance(game_day, int):
+            return _error(-32602, "params.game_day must be an integer", req.id)
+        return _result({"target": get_target_value(game_day)}, req.id)
 
     elif req.method.startswith("checkin."):
         return _checkin_rpc(req, _14_player_stats, _14_daily_stats, _14_GAME_START)
