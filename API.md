@@ -1,6 +1,6 @@
 # Worcadian Game Server — API Reference
 
-All game logic is exposed over a single JSON-RPC 2.0 endpoint. Two static pages and one admin page are served at fixed HTTP routes.
+All game logic is exposed over JSON-RPC 2.0 endpoints. Static pages and an admin page are served at fixed HTTP routes.
 
 ---
 
@@ -8,12 +8,14 @@ All game logic is exposed over a single JSON-RPC 2.0 endpoint. Two static pages 
 
 ### HTTP Routes
 
-| Method | Path         | Description                        |
-|--------|--------------|------------------------------------|
-| GET    | `/`          | Whatgame Studios home page         |
-| GET    | `/worcadian` | Worcadian game UI                  |
-| GET    | `/admin`     | Admin page (static)                |
-| POST   | `/rpc`       | JSON-RPC 2.0 endpoint              |
+| Method | Path          | Description                        |
+|--------|---------------|------------------------------------|
+| GET    | `/`           | Whatgame Studios home page         |
+| GET    | `/worcadian`  | Worcadian game UI                  |
+| GET    | `/14numbers`  | 14 Numbers game UI                 |
+| GET    | `/admin`      | Admin page (static)                |
+| POST   | `/rpc`        | Worcadian JSON-RPC 2.0 endpoint    |
+| POST   | `/14rpc`      | 14 Numbers JSON-RPC 2.0 endpoint   |
 
 ### JSON-RPC 2.0
 
@@ -58,7 +60,9 @@ Standard error codes:
 
 ## Constants
 
-These values mirror the on-chain Solidity constants and are used in game logic.
+### Worcadian
+
+These values mirror the on-chain Solidity constants and are used in Worcadian game logic.
 
 | Name                    | Value        | Description                                    |
 |-------------------------|--------------|------------------------------------------------|
@@ -68,6 +72,19 @@ These values mirror the on-chain Solidity constants and are used in game logic.
 | `PLUS_FOURTEEN`         | `50400`      | GMT+14 offset (Kiribati, Line Islands)         |
 | `MINUS_TWELVE`          | `43200`      | GMT-12 offset (Baker and Howard Island)        |
 | `LETTERS_IN_ALPHABET`   | `26`         | Starting score value                           |
+
+### 14 Numbers
+
+| Name                       | Value        | Description                             |
+|----------------------------|--------------|-----------------------------------------|
+| `UNIX_TIME_GAME_START`     | `1733011200` | Sunday 1 December 2024 00:00:00 UTC     |
+| `SECONDS_PER_DAY`          | `86400`      |                                         |
+| `PLUS_FOURTEEN`            | `50400`      | GMT+14 offset                           |
+| `MINUS_TWELVE`             | `43200`      | GMT-12 offset                           |
+| `MIN_TARGET_VALUE`         | `250`        | Minimum target number                   |
+| `MAX_TARGET_VALUE`         | `1000`       | Upper bound for target generation (exclusive of 1000) |
+| `MAX_NUMBERS`              | `5`          | Maximum numbers per expression          |
+| `MAX_BRACKETS`             | `5`          | Maximum bracket pairs per expression    |
 
 ---
 
@@ -478,4 +495,272 @@ Return a paginated slice of all-time players in order of first check-in. Mirrors
   "total": 142,
   "players": ["alice", "bob", "0xAbCd..."]
 }
+```
+
+---
+
+---
+
+# 14 Numbers — `/14rpc`
+
+The `/14rpc` endpoint uses the same JSON-RPC 2.0 transport as `/rpc`. The same request/response envelope and error codes apply (see [Transport](#transport) above).
+
+---
+
+## 14 Numbers Game Rules
+
+Players submit three arithmetic expressions. Each expression uses a subset of the allowed numbers (1–10, 25, 50, 75, 100) combined with `+`, `-`, `*`, `/`, and optional brackets. A number may not appear more than once within a single expression, and **no number may be shared across the three parts**. The score for each part is how close the result is to the target number for the day.
+
+### Valid Numbers
+
+`1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `25`, `50`, `75`, `100`
+
+### Expression Rules
+
+- Max 5 numbers per expression (`MAX_NUMBERS = 5`)
+- Max 5 bracket pairs per expression (`MAX_BRACKETS = 5`)
+- Intermediate and final results must be non-negative integers
+- Division must produce a whole number
+- Division by zero is rejected
+
+### Scoring
+
+```
+points_single(target, result):
+  if result == target: return 70
+  diff = abs(target - result)
+  if diff > 50: return 0
+  return 50 - diff          # range: 1–49
+
+total_score = points_single(target, result1)
+            + points_single(target, result2)
+            + points_single(target, result3)
+```
+
+Maximum possible score per submission: **210** (all three parts exactly equal the target).
+
+### Target Number Generation
+
+The target is deterministically derived from the game day using SHA-256 (mirrors the Solidity `getTargetValue` function):
+
+```
+seed   = sha256(big_endian_uint32(game_day) ++ uint32(0) ++ uint32(0))
+count  = 0
+loop:
+  val = unpack_big_endian_uint32(sha256(seed ++ big_endian_uint32(count))[-4:]) % MAX_TARGET_VALUE
+  count += 1
+  if val >= MIN_TARGET_VALUE: return val
+```
+
+Target is always in the range **[250, 999]**.
+
+---
+
+## 14 Numbers Methods
+
+---
+
+### Game Day
+
+#### `gameday.current`
+Return the current valid game day range for 14 Numbers (game origin: 1 December 2024).
+
+**Params** — `{}` (empty)
+
+**Result**
+```json
+{ "min_day": 165, "max_day": 167 }
+```
+
+---
+
+#### `gameday.check`
+Check whether a specific 14 Numbers game day is currently valid.
+
+**Params**
+```json
+{ "day": 166 }
+```
+
+**Result**
+```json
+{ "valid": true, "requested_day": 166, "min_day": 165, "max_day": 167 }
+```
+
+---
+
+### Target
+
+#### `target.get`
+Return the target number for a given game day.
+
+**Params**
+```json
+{ "game_day": 166 }
+```
+
+**Result**
+```json
+{ "target": 743 }
+```
+
+---
+
+### Solutions
+
+#### `solution.submit`
+Submit a three-part solution for a game day.
+
+**Validation steps (in order):**
+1. `game_day` must be within the current valid range.
+2. Each of `part1`, `part2`, `part3` is evaluated; any parse or arithmetic error is rejected.
+3. No number may appear in more than one part.
+4. Score is calculated. If it is lower than the current best score for the day, the submission is rejected as not competitive.
+5. If the exact same `(part1, part2, part3)` triple already exists for the day it is returned as a duplicate (not stored again).
+6. Submission is stored.
+
+**Higher score is better. 210 is optimal.**
+
+**Params**
+```json
+{
+  "game_day": 166,
+  "user_id": "alice",
+  "part1": "7*100",
+  "part2": "50+25",
+  "part3": "9-1"
+}
+```
+
+**Result**
+```json
+{
+  "status": "submitted",
+  "score": 185,
+  "best_score": 185,
+  "result1": 700,
+  "result2": 75,
+  "result3": 8
+}
+```
+
+**`status` values**
+
+| Value             | Meaning                                                              |
+|-------------------|----------------------------------------------------------------------|
+| `submitted`       | Stored successfully                                                  |
+| `not_competitive` | Score is lower than the current best for the day; not stored         |
+| `duplicate`       | Identical `(part1, part2, part3)` already exists; not stored again  |
+
+---
+
+#### `solution.results`
+Return the best score and all submissions at that score for a game day (up to 20).
+
+**Params**
+```json
+{ "game_day": 166 }
+```
+
+**Result**
+```json
+{
+  "game_day": 166,
+  "best_score": 185,
+  "solutions": [
+    {
+      "user_id": "alice",
+      "part1": "7*100", "part2": "50+25", "part3": "9-1",
+      "result1": 700, "result2": 75, "result3": 8,
+      "score": 185
+    }
+  ]
+}
+```
+
+Returns `{ "game_day": 166, "best_score": null, "solutions": [] }` when no submissions exist.
+
+---
+
+### Check-In (14 Numbers)
+
+The check-in methods on `/14rpc` are identical in behaviour to those on `/rpc` but track 14 Numbers players and sessions separately using the 14 Numbers game origin date.
+
+#### `checkin.checkin`
+
+**Params**
+```json
+{ "game_day": 166, "player": "alice" }
+```
+
+**Result**
+```json
+{ "game_day": 166, "player": "alice", "days_played": 3, "is_new_day": true }
+```
+
+---
+
+#### `checkin.days_played`
+
+**Params**
+```json
+{ "player": "alice" }
+```
+
+**Result**
+```json
+{ "player": "alice", "days_played": 3 }
+```
+
+---
+
+#### `checkin.num_players`
+
+**Params**
+```json
+{ "start_game_day": 164, "num_days": 3 }
+```
+
+**Result**
+```json
+{ "players": [8, 12, 10] }
+```
+
+---
+
+#### `checkin.num_sessions`
+
+**Params**
+```json
+{ "start_game_day": 164, "num_days": 3 }
+```
+
+**Result**
+```json
+{ "sessions": [20, 35, 28] }
+```
+
+---
+
+#### `checkin.total_players`
+
+**Params** — `{}` (empty)
+
+**Result**
+```json
+{ "total": 47 }
+```
+
+---
+
+#### `checkin.players`
+
+**Params**
+```json
+{ "start_index": 0, "count": 20 }
+```
+
+**Result**
+```json
+{ "total": 47, "players": ["alice", "bob"] }
 ```
