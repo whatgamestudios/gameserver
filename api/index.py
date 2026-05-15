@@ -64,9 +64,32 @@ def rpc(req: RpcRequest):
 @app.post("/14rpc")
 def rpc_14(req: RpcRequest):
     try:
-        return _checkin_rpc(req, _14_player_stats, _14_daily_stats, _14_GAME_START)
+        return _rpc_14_handler(req)
     except Exception as exc:
         return _error(-32603, f"Internal error: {exc}", req.id)
+
+
+def _rpc_14_handler(req: RpcRequest):
+    if req.jsonrpc != "2.0":
+        return _error(-32600, "Invalid Request", req.id)
+
+    if req.method == "gameday.current":
+        min_day, max_day = _current_game_days(_14_GAME_START)
+        return _result({"min_day": min_day, "max_day": max_day}, req.id)
+
+    elif req.method == "gameday.check":
+        day = (req.params or {}).get("day")
+        if not isinstance(day, int):
+            return _error(-32602, "params.day must be an integer", req.id)
+        min_day, max_day = _current_game_days(_14_GAME_START)
+        valid = min_day <= day <= max_day
+        return _result({"valid": valid, "requested_day": day, "min_day": min_day, "max_day": max_day}, req.id)
+
+    elif req.method.startswith("checkin."):
+        return _checkin_rpc(req, _14_player_stats, _14_daily_stats, _14_GAME_START)
+
+    else:
+        return _error(-32601, f"Method not found: {req.method}", req.id)
 
 
 def _rpc(req: RpcRequest):

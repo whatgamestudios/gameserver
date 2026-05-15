@@ -793,6 +793,27 @@ NUMBERS14_HTML = """<!DOCTYPE html>
     <h1>14 Numbers</h1>
 
     <section>
+      <h2>Game Day</h2>
+
+      <div class="subsection">
+        <h3>Current Game Day</h3>
+        <p class="hint">Returns the valid game day range for the current moment across all timezones (GMT-12 to GMT+14).</p>
+        <button id="gd-current-btn" onclick="getGameDayCurrent()">Get Current</button>
+        <div id="gd-current-results" class="results"></div>
+      </div>
+
+      <hr>
+
+      <div class="subsection">
+        <h3>Check Game Day</h3>
+        <p class="hint">Enter a day number to check whether it is currently valid.</p>
+        <input id="gd-check-input" type="number" placeholder="42" style="padding:0.5rem 0.75rem;border:1px solid #d0d0d0;border-radius:6px;font-size:0.9rem;margin-bottom:0.75rem;width:100%;">
+        <button id="gd-check-btn" onclick="checkGameDay()">Check</button>
+        <div id="gd-check-results" class="results"></div>
+      </div>
+    </section>
+
+    <section>
       <h2>Check-In</h2>
 
       <div class="subsection">
@@ -844,6 +865,63 @@ NUMBERS14_HTML = """<!DOCTYPE html>
         body: JSON.stringify({jsonrpc: '2.0', method, params, id: 1}),
       });
       return res.json();
+    }
+
+    async function getGameDayCurrent() {
+      const out = document.getElementById('gd-current-results');
+      const btn = document.getElementById('gd-current-btn');
+      btn.disabled = true;
+      try {
+        const data = await rpc('gameday.current', {});
+        if (data.error) {
+          out.innerHTML = `<p class="error-msg">Error: ${data.error.message}</p>`;
+        } else {
+          const {min_day, max_day} = data.result;
+          out.innerHTML = `
+            <div class="result-row found">
+              <span class="badge">Min</span>
+              <span>Day ${min_day}</span>
+            </div>
+            <div class="result-row found">
+              <span class="badge">Max</span>
+              <span>Day ${max_day}</span>
+            </div>`;
+        }
+      } catch (e) {
+        out.innerHTML = `<p class="error-msg">Request failed.</p>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function checkGameDay() {
+      const out = document.getElementById('gd-check-results');
+      const val = document.getElementById('gd-check-input').value.trim();
+      if (!val) { out.innerHTML = ''; return; }
+      const day = parseInt(val, 10);
+      if (isNaN(day)) {
+        out.innerHTML = `<p class="error-msg">Day must be an integer.</p>`;
+        return;
+      }
+      const btn = document.getElementById('gd-check-btn');
+      btn.disabled = true;
+      try {
+        const data = await rpc('gameday.check', {day});
+        if (data.error) {
+          out.innerHTML = `<p class="error-msg">Error: ${data.error.message}</p>`;
+        } else {
+          const {valid, requested_day, min_day, max_day} = data.result;
+          out.innerHTML = `
+            <div class="result-row ${valid ? 'found' : 'not-found'}">
+              <span class="badge">${valid ? 'Valid' : 'Invalid'}</span>
+              <span>Day ${requested_day} &mdash; valid range: ${min_day} &ndash; ${max_day}</span>
+            </div>`;
+        }
+      } catch (e) {
+        out.innerHTML = `<p class="error-msg">Request failed.</p>`;
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     async function doCheckIn() {
