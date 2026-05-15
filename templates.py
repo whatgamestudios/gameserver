@@ -841,6 +841,32 @@ NUMBERS14_HTML = """<!DOCTYPE html>
     </section>
 
     <section>
+      <h2>Solution</h2>
+
+      <div class="subsection">
+        <h3>Submit</h3>
+        <p class="hint">Submit three expressions as your solution. Numbers may not be shared across parts.</p>
+        <input id="sol-day" type="number" placeholder="Game day">
+        <input id="sol-user" type="text" placeholder="User ID">
+        <input id="sol-p1" type="text" placeholder="Part 1 expression">
+        <input id="sol-p2" type="text" placeholder="Part 2 expression">
+        <input id="sol-p3" type="text" placeholder="Part 3 expression">
+        <button id="sol-submit-btn" onclick="submitSolution()">Submit</button>
+        <div id="sol-results" class="results"></div>
+      </div>
+
+      <hr>
+
+      <div class="subsection">
+        <h3>Results</h3>
+        <p class="hint">Returns the best solutions for a game day.</p>
+        <input id="sol-get-day" type="number" placeholder="Game day">
+        <button id="sol-get-btn" onclick="getSolResults()">Get Results</button>
+        <div id="sol-get-results" class="results"></div>
+      </div>
+    </section>
+
+    <section>
       <h2>Check-In</h2>
 
       <div class="subsection">
@@ -956,6 +982,72 @@ NUMBERS14_HTML = """<!DOCTYPE html>
           <span class="badge">Total</span>
           <span>${total} pt${total !== 1 ? 's' : ''}</span>
         </div>`;
+    }
+
+    async function submitSolution() {
+      const out = document.getElementById('sol-results');
+      const game_day = parseInt(document.getElementById('sol-day').value, 10);
+      const user_id = document.getElementById('sol-user').value.trim();
+      const part1 = document.getElementById('sol-p1').value.trim();
+      const part2 = document.getElementById('sol-p2').value.trim();
+      const part3 = document.getElementById('sol-p3').value.trim();
+      if (isNaN(game_day)) { out.innerHTML = `<p class="error-msg">Game day must be an integer.</p>`; return; }
+      if (!user_id) { out.innerHTML = `<p class="error-msg">User ID is required.</p>`; return; }
+      if (!part1 || !part2 || !part3) { out.innerHTML = `<p class="error-msg">All three parts are required.</p>`; return; }
+      const btn = document.getElementById('sol-submit-btn');
+      btn.disabled = true;
+      try {
+        const data = await rpc('solution.submit', {game_day, user_id, part1, part2, part3});
+        if (data.error) {
+          out.innerHTML = `<p class="error-msg">Error: ${data.error.message}</p>`;
+        } else {
+          const r = data.result;
+          const sc = {submitted:'found', not_competitive:'not-found', duplicate:'existed'}[r.status] || 'info';
+          const sl = {submitted:'Submitted', not_competitive:'Not competitive', duplicate:'Duplicate'}[r.status] || r.status;
+          out.innerHTML = `
+            <div class="result-row ${sc}">
+              <span class="badge">${sl}</span>
+              <span>Score: ${r.score}${r.best_score != null ? ' (best: ' + r.best_score + ')' : ''}</span>
+            </div>
+            <div class="result-row existed"><span class="badge">Part 1</span><span>${escHtml(part1)} = ${r.result1}</span></div>
+            <div class="result-row existed"><span class="badge">Part 2</span><span>${escHtml(part2)} = ${r.result2}</span></div>
+            <div class="result-row existed"><span class="badge">Part 3</span><span>${escHtml(part3)} = ${r.result3}</span></div>`;
+        }
+      } catch (e) {
+        out.innerHTML = `<p class="error-msg">Request failed.</p>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function getSolResults() {
+      const out = document.getElementById('sol-get-results');
+      const game_day = parseInt(document.getElementById('sol-get-day').value, 10);
+      if (isNaN(game_day)) { out.innerHTML = `<p class="error-msg">Game day must be an integer.</p>`; return; }
+      const btn = document.getElementById('sol-get-btn');
+      btn.disabled = true;
+      try {
+        const data = await rpc('solution.results', {game_day});
+        if (data.error) {
+          out.innerHTML = `<p class="error-msg">Error: ${data.error.message}</p>`;
+        } else {
+          const {best_score, solutions} = data.result;
+          if (!solutions.length) {
+            out.innerHTML = `<div class="result-row not-found"><span class="badge">Empty</span><span>No solutions for day ${game_day}</span></div>`;
+          } else {
+            out.innerHTML = `<div class="result-row found"><span class="badge">Best</span><span>${best_score} pts</span></div>` +
+              solutions.map(s => `
+                <div class="result-row info">
+                  <span class="badge">${escHtml(s.user_id)}</span>
+                  <span>${escHtml(s.part1)}=${s.result1}, ${escHtml(s.part2)}=${s.result2}, ${escHtml(s.part3)}=${s.result3} &mdash; ${s.score} pts</span>
+                </div>`).join('');
+          }
+        }
+      } catch (e) {
+        out.innerHTML = `<p class="error-msg">Request failed.</p>`;
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     async function getGameDayCurrent() {

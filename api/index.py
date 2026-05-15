@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from db import engine, wordlist, seedwords, submissions, player_stats, daily_stats, _14_player_stats, _14_daily_stats
+from db import engine, wordlist, seedwords, submissions, player_stats, daily_stats, _14_player_stats, _14_daily_stats, _14_solutions
 from board import (
     BOARD_SIZE,
     _GAME_START,
@@ -16,7 +16,7 @@ from board import (
     _current_game_days,
     _is_seed_word_on_board,
 )
-from numbers14 import get_target_value
+from numbers14 import get_target_value, calc, CalcError, calc_points
 from templates import INDEX_HTML, WORCADIAN_HTML, NUMBERS14_HTML
 
 _FIVE_YEARS_OF_DAYS = 1826  # mirrors Solidity FIVE_YEARS_OF_DAYS
@@ -91,6 +91,117 @@ def _rpc_14_handler(req: RpcRequest):
         if not isinstance(game_day, int):
             return _error(-32602, "params.game_day must be an integer", req.id)
         return _result({"target": get_target_value(game_day)}, req.id)
+
+    elif req.method == "solution.submit":
+        params = req.params or {}
+        game_day = params.get("game_day")
+        user_id = params.get("user_id")
+        part1 = params.get("part1")
+        part2 = params.get("part2")
+        part3 = params.get("part3")
+        if not isinstance(game_day, int):
+            return _error(-32602, "params.game_day must be an integer", req.id)
+        if not isinstance(user_id, str) or not user_id.strip():
+            return _error(-32602, "params.user_id must be a non-empty string", req.id)
+        if not all(isinstance(p, str) for p in (part1, part2, part3)):
+            return _error(-32602, "params.part1/2/3 must be strings", req.id)
+        user_id = user_id.strip()
+
+        min_day, max_day = _current_game_days(_14_GAME_START)
+        if not (min_day <= game_day <= max_day):
+            return _error(-32602, f"game_day {game_day} is not valid (valid range: {min_day}–{max_day})", req.id)
+
+        try:
+            result1, used1 = calc(part1)
+            result2, used2 = calc(part2)
+            result3, used3 = calc(part3)
+        except CalcError as exc:
+            return _error(-32602, str(exc), req.id)
+
+        if used1 & used2 or used1 & used3 or used2 & used3:
+            overlap = sorted((used1 & used2) | (used1 & used3) | (used2 & used3))
+            return _error(-32602, f"Number(s) {overlap} used in more than one part", req.id)
+
+        target = get_target_value(game_day)
+        score = calc_points(target, result1, result2, result3)
+
+        with engine.connect() as conn:
+            best_score = conn.execute(
+                sa.select(sa.func.max(_14_solutions.c.score))
+                .where(_14_solutions.c.game_day == game_day)
+            ).scalar()
+
+        if best_score is not None and score < best_score:
+            return _result({
+                "status": "not_competitive",
+                "score": score, "best_score": best_score,
+                "result1": result1, "result2": result2, "result3": result3,
+            }, req.id)
+
+        with engine.connect() as conn:
+            dup = conn.execute(
+                sa.select(sa.func.count()).select_from(_14_solutions)
+                .where(_14_solutions.c.game_day == game_day)
+                .where(_14_solutions.c.part1 == part1)
+                .where(_14_solutions.c.part2 == part2)
+                .where(_14_solutions.c.part3 == part3)
+            ).scalar() or 0
+
+        if dup:
+            return _result({
+                "status": "duplicate",
+                "score": score, "best_score": best_score,
+                "result1": result1, "result2": result2, "result3": result3,
+            }, req.id)
+
+        with engine.begin() as conn:
+            conn.execute(_14_solutions.insert().values(
+                game_day=game_day, user_id=user_id,
+                part1=part1, part2=part2, part3=part3,
+                result1=result1, result2=result2, result3=result3,
+                score=score,
+            ))
+
+        return _result({
+            "status": "submitted",
+            "score": score,
+            "best_score": score if best_score is None else max(score, best_score),
+            "result1": result1, "result2": result2, "result3": result3,
+        }, req.id)
+
+    elif req.method == "solution.results":
+        game_day = (req.params or {}).get("game_day")
+        if not isinstance(game_day, int):
+            return _error(-32602, "params.game_day must be an integer", req.id)
+        with engine.connect() as conn:
+            best_score = conn.execute(
+                sa.select(sa.func.max(_14_solutions.c.score))
+                .where(_14_solutions.c.game_day == game_day)
+            ).scalar()
+            if best_score is None:
+                return _result({"game_day": game_day, "best_score": None, "solutions": []}, req.id)
+            rows = conn.execute(
+                sa.select(
+                    _14_solutions.c.user_id,
+                    _14_solutions.c.part1, _14_solutions.c.part2, _14_solutions.c.part3,
+                    _14_solutions.c.result1, _14_solutions.c.result2, _14_solutions.c.result3,
+                    _14_solutions.c.score,
+                )
+                .where(_14_solutions.c.game_day == game_day)
+                .where(_14_solutions.c.score == best_score)
+                .limit(20)
+            ).fetchall()
+        return _result({
+            "game_day": game_day,
+            "best_score": best_score,
+            "solutions": [
+                {"user_id": r[0],
+                 "part1": r[1], "part2": r[2], "part3": r[3],
+                 "result1": r[4], "result2": r[5], "result3": r[6],
+                 "score": r[7]}
+                for r in rows
+            ],
+        }, req.id)
 
     elif req.method.startswith("checkin."):
         return _checkin_rpc(req, _14_player_stats, _14_daily_stats, _14_GAME_START)

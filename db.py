@@ -64,4 +64,18 @@ _14_daily_stats = sa.Table(
     sa.Column("num_players", sa.Integer, nullable=False, default=0),
     sa.Column("num_sessions", sa.Integer, nullable=False, default=0),
 )
+_14_solutions = sa.Table(
+    "14_solutions",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("game_day", sa.Integer, nullable=False),
+    sa.Column("user_id", sa.String, nullable=False),
+    sa.Column("part1", sa.String, nullable=False),
+    sa.Column("part2", sa.String, nullable=False),
+    sa.Column("part3", sa.String, nullable=False),
+    sa.Column("result1", sa.Integer, nullable=False),
+    sa.Column("result2", sa.Integer, nullable=False),
+    sa.Column("result3", sa.Integer, nullable=False),
+    sa.Column("score", sa.Integer, nullable=False),
+)
 metadata.create_all(engine)
