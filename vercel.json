@@ -1,9 +1,4 @@
 {
-  "functions": {
-    "api/index.py": {
-      "includeFiles": "api/templates/**"
-    }
-  },
   "rewrites": [
     { "source": "/((?!admin).*)", "destination": "/api/index" }
   ]

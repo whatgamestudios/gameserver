@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 import sqlalchemy as sa
@@ -15,10 +14,7 @@ from board import (
     _current_game_days,
     _is_seed_word_on_board,
 )
-
-_TEMPLATES = Path(__file__).parent / "templates"
-_INDEX_HTML = (_TEMPLATES / "index.html").read_text()
-_WORCADIAN_HTML = (_TEMPLATES / "worcadian.html").read_text()
+from templates import INDEX_HTML, WORCADIAN_HTML
 
 _FIVE_YEARS_OF_DAYS = 1826  # mirrors Solidity FIVE_YEARS_OF_DAYS
 
@@ -42,12 +38,12 @@ def _result(result: Any, req_id: Any = None) -> JSONResponse:
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return _INDEX_HTML
+    return INDEX_HTML
 
 
 @app.get("/worcadian", response_class=HTMLResponse)
 def worcadian():
-    return _WORCADIAN_HTML
+    return WORCADIAN_HTML
 
 
 @app.post("/rpc")
