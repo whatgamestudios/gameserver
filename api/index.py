@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from db import engine, wordlist, seedwords, submissions, player_stats, daily_stats
+from db import engine, wordlist, seedwords, submissions, player_stats, daily_stats, _14_player_stats, _14_daily_stats
 from board import (
     BOARD_SIZE,
     _analyse_board,
@@ -14,7 +14,7 @@ from board import (
     _current_game_days,
     _is_seed_word_on_board,
 )
-from templates import INDEX_HTML, WORCADIAN_HTML
+from templates import INDEX_HTML, WORCADIAN_HTML, NUMBERS14_HTML
 
 _FIVE_YEARS_OF_DAYS = 1826  # mirrors Solidity FIVE_YEARS_OF_DAYS
 
@@ -46,10 +46,23 @@ def worcadian():
     return WORCADIAN_HTML
 
 
+@app.get("/14numbers", response_class=HTMLResponse)
+def numbers14():
+    return NUMBERS14_HTML
+
+
 @app.post("/rpc")
 def rpc(req: RpcRequest):
     try:
         return _rpc(req)
+    except Exception as exc:
+        return _error(-32603, f"Internal error: {exc}", req.id)
+
+
+@app.post("/14rpc")
+def rpc_14(req: RpcRequest):
+    try:
+        return _checkin_rpc(req, _14_player_stats, _14_daily_stats)
     except Exception as exc:
         return _error(-32603, f"Internal error: {exc}", req.id)
 
@@ -302,7 +315,15 @@ def _rpc(req: RpcRequest):
         return _result({"total": total,
                         "submissions": [{"player": r[0], "board": r[1]} for r in rows]}, req.id)
 
-    elif req.method == "checkin.checkin":
+    elif req.method.startswith("checkin."):
+        return _checkin_rpc(req, player_stats, daily_stats)
+
+    else:
+        return _error(-32601, f"Method not found: {req.method}", req.id)
+
+
+def _checkin_rpc(req: RpcRequest, p_stats: Any, d_stats: Any):
+    if req.method == "checkin.checkin":
         params = req.params or {}
         game_day = params.get("game_day")
         player = params.get("player")
@@ -319,17 +340,17 @@ def _rpc(req: RpcRequest):
         with engine.begin() as conn:
             # Ensure daily_stats row exists, then atomically increment sessions
             if not conn.execute(
-                sa.select(sa.func.count()).select_from(daily_stats)
-                .where(daily_stats.c.game_day == game_day)
+                sa.select(sa.func.count()).select_from(d_stats)
+                .where(d_stats.c.game_day == game_day)
             ).scalar():
-                conn.execute(daily_stats.insert().values(game_day=game_day, num_players=0, num_sessions=0))
+                conn.execute(d_stats.insert().values(game_day=game_day, num_players=0, num_sessions=0))
             conn.execute(
-                daily_stats.update().where(daily_stats.c.game_day == game_day)
-                .values(num_sessions=daily_stats.c.num_sessions + 1)
+                d_stats.update().where(d_stats.c.game_day == game_day)
+                .values(num_sessions=d_stats.c.num_sessions + 1)
             )
 
             stats = conn.execute(
-                sa.select(player_stats).where(player_stats.c.player == player)
+                sa.select(p_stats).where(p_stats.c.player == player)
             ).fetchone()
 
             current_days = stats[3] if stats else 0        # days_played
@@ -338,17 +359,17 @@ def _rpc(req: RpcRequest):
 
             if is_new_day:
                 conn.execute(
-                    daily_stats.update().where(daily_stats.c.game_day == game_day)
-                    .values(num_players=daily_stats.c.num_players + 1)
+                    d_stats.update().where(d_stats.c.game_day == game_day)
+                    .values(num_players=d_stats.c.num_players + 1)
                 )
                 new_days = current_days + 1
                 if stats is None:
-                    conn.execute(player_stats.insert().values(
+                    conn.execute(p_stats.insert().values(
                         player=player, most_recent_game_day=game_day, days_played=new_days
                     ))
                 else:
                     conn.execute(
-                        player_stats.update().where(player_stats.c.player == player)
+                        p_stats.update().where(p_stats.c.player == player)
                         .values(most_recent_game_day=game_day, days_played=new_days)
                     )
                 days_played_result = new_days
@@ -364,7 +385,7 @@ def _rpc(req: RpcRequest):
             return _error(-32602, "params.player must be a non-empty string", req.id)
         with engine.connect() as conn:
             row = conn.execute(
-                sa.select(player_stats.c.days_played).where(player_stats.c.player == player.strip())
+                sa.select(p_stats.c.days_played).where(p_stats.c.player == player.strip())
             ).fetchone()
         return _result({"player": player.strip(), "days_played": row[0] if row else 0}, req.id)
 
@@ -378,8 +399,8 @@ def _rpc(req: RpcRequest):
         days = list(range(start_day, start_day + num_days))
         with engine.connect() as conn:
             rows = conn.execute(
-                sa.select(daily_stats.c.game_day, daily_stats.c.num_players)
-                .where(daily_stats.c.game_day.in_(days))
+                sa.select(d_stats.c.game_day, d_stats.c.num_players)
+                .where(d_stats.c.game_day.in_(days))
             ).fetchall()
         day_map = {r[0]: r[1] for r in rows}
         return _result({"players": [day_map.get(d, 0) for d in days]}, req.id)
@@ -394,15 +415,15 @@ def _rpc(req: RpcRequest):
         days = list(range(start_day, start_day + num_days))
         with engine.connect() as conn:
             rows = conn.execute(
-                sa.select(daily_stats.c.game_day, daily_stats.c.num_sessions)
-                .where(daily_stats.c.game_day.in_(days))
+                sa.select(d_stats.c.game_day, d_stats.c.num_sessions)
+                .where(d_stats.c.game_day.in_(days))
             ).fetchall()
         day_map = {r[0]: r[1] for r in rows}
         return _result({"sessions": [day_map.get(d, 0) for d in days]}, req.id)
 
     elif req.method == "checkin.total_players":
         with engine.connect() as conn:
-            total = conn.execute(sa.select(sa.func.count()).select_from(player_stats)).scalar() or 0
+            total = conn.execute(sa.select(sa.func.count()).select_from(p_stats)).scalar() or 0
         return _result({"total": total}, req.id)
 
     elif req.method == "checkin.players":
@@ -412,9 +433,9 @@ def _rpc(req: RpcRequest):
         if not isinstance(start_index, int) or not isinstance(count, int) or start_index < 0 or count < 1:
             return _error(-32602, "params.start_index and params.count must be non-negative integers", req.id)
         with engine.connect() as conn:
-            total = conn.execute(sa.select(sa.func.count()).select_from(player_stats)).scalar() or 0
+            total = conn.execute(sa.select(sa.func.count()).select_from(p_stats)).scalar() or 0
             rows = conn.execute(
-                sa.select(player_stats.c.player).order_by(player_stats.c.id)
+                sa.select(p_stats.c.player).order_by(p_stats.c.id)
                 .offset(start_index).limit(count)
             ).fetchall()
         return _result({"total": total, "players": [r[0] for r in rows]}, req.id)

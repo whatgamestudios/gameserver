@@ -7,7 +7,10 @@ INDEX_HTML = """<!DOCTYPE html>
 </head>
 <body>
   <h1>Whatgame Studios</h1>
-  <a href="/worcadian">Worcadian</a>
+  <ul>
+    <li><a href="/worcadian">Worcadian</a></li>
+    <li><a href="/14numbers">14 Numbers</a></li>
+  </ul>
 </body>
 </html>"""
 
@@ -691,6 +694,266 @@ WORCADIAN_HTML = """<!DOCTYPE html>
                 <span class="badge">${escHtml(s.player)}</span>
                 <span style="font-family:monospace;font-size:0.75rem">${escHtml(s.board.trim())}</span>
               </div>`).join('');
+          }
+        }
+      } catch (e) {
+        out.innerHTML = `<p class="error-msg">Request failed.</p>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function escHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+  </script>
+</body>
+</html>"""
+
+NUMBERS14_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>14 Numbers</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f5f5f5;
+      color: #111;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+    .container { width: 100%; max-width: 640px; }
+    h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 2rem; }
+    h2 { font-size: 1.25rem; font-weight: 700; margin-bottom: 1rem; color: #333; }
+    h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.75rem; }
+    section {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    input[type=text], input[type=number] {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #d0d0d0;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      margin-bottom: 0.75rem;
+    }
+    input[type=text]:focus, input[type=number]:focus { outline: none; border-color: #555; }
+    .info .badge { background: #ede9fe; color: #5b21b6; }
+    button {
+      padding: 0.5rem 1.25rem;
+      background: #111;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    button:hover { background: #333; }
+    button:disabled { background: #999; cursor: default; }
+    .results { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.4rem; }
+    .result-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      padding: 0.35rem 0.6rem;
+      border-radius: 5px;
+      background: #f9f9f9;
+    }
+    .badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    .found .badge { background: #d1fae5; color: #065f46; }
+    .not-found .badge { background: #fee2e2; color: #991b1b; }
+    .added .badge { background: #dbeafe; color: #1e40af; }
+    .existed .badge { background: #f3f4f6; color: #374151; }
+    .error-msg { color: #991b1b; font-size: 0.875rem; margin-top: 0.75rem; }
+    .hint { font-size: 0.8rem; color: #666; margin-bottom: 0.75rem; }
+    .subsection { margin-bottom: 1.5rem; }
+    .subsection:last-child { margin-bottom: 0; }
+    hr { border: none; border-top: 1px solid #e0e0e0; margin: 1.25rem 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>14 Numbers</h1>
+
+    <section>
+      <h2>Check-In</h2>
+
+      <div class="subsection">
+        <h3>Check In</h3>
+        <p class="hint">Records a session. Increments unique-player count once per player per day.</p>
+        <input id="ci-day" type="number" placeholder="Game day">
+        <input id="ci-player" type="text" placeholder="Player name">
+        <button id="ci-btn" onclick="doCheckIn()">Check In</button>
+        <div id="ci-results" class="results"></div>
+      </div>
+
+      <hr>
+
+      <div class="subsection">
+        <h3>Player Stats</h3>
+        <p class="hint">Returns the total number of days a player has checked in.</p>
+        <input id="ci-stats-player" type="text" placeholder="Player name">
+        <button id="ci-stats-btn" onclick="getPlayerStats()">Get Stats</button>
+        <div id="ci-stats-results" class="results"></div>
+      </div>
+
+      <hr>
+
+      <div class="subsection">
+        <h3>Daily Stats</h3>
+        <p class="hint">Returns unique player counts and session counts for a range of game days.</p>
+        <input id="ci-daily-start" type="number" placeholder="Start game day">
+        <input id="ci-daily-count" type="number" placeholder="Number of days" value="7">
+        <button id="ci-daily-btn" onclick="getDailyStats()">Get Stats</button>
+        <div id="ci-daily-results" class="results"></div>
+      </div>
+
+      <hr>
+
+      <div class="subsection">
+        <h3>All Players</h3>
+        <p class="hint">Returns total unique players and a paginated list in order of first check-in.</p>
+        <button id="ci-players-btn" onclick="getAllPlayers()">Get Players</button>
+        <div id="ci-players-results" class="results"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    async function rpc(method, params) {
+      const res = await fetch('/14rpc', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({jsonrpc: '2.0', method, params, id: 1}),
+      });
+      return res.json();
+    }
+
+    async function doCheckIn() {
+      const out = document.getElementById('ci-results');
+      const game_day = parseInt(document.getElementById('ci-day').value, 10);
+      const player = document.getElementById('ci-player').value.trim();
+      if (isNaN(game_day)) { out.innerHTML = `<p class="error-msg">Game day must be an integer.</p>`; return; }
+      if (!player) { out.innerHTML = `<p class="error-msg">Player name is required.</p>`; return; }
+      const btn = document.getElementById('ci-btn');
+      btn.disabled = true;
+      try {
+        const data = await rpc('checkin.checkin', {game_day, player});
+        if (data.error) {
+          out.innerHTML = `<p class="error-msg">Error: ${data.error.message}</p>`;
+        } else {
+          const {days_played, is_new_day} = data.result;
+          out.innerHTML = `
+            <div class="result-row found">
+              <span class="badge">Checked in</span>
+              <span>${escHtml(player)} &#8212; day ${game_day}</span>
+            </div>
+            <div class="result-row ${is_new_day ? 'added' : 'existed'}">
+              <span class="badge">${is_new_day ? 'New day' : 'Repeat session'}</span>
+              <span>Days played: ${days_played}</span>
+            </div>`;
+        }
+      } catch (e) {
+        out.innerHTML = `<p class="error-msg">Request failed.</p>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function getPlayerStats() {
+      const out = document.getElementById('ci-stats-results');
+      const player = document.getElementById('ci-stats-player').value.trim();
+      if (!player) { out.innerHTML = `<p class="error-msg">Player name is required.</p>`; return; }
+      const btn = document.getElementById('ci-stats-btn');
+      btn.disabled = true;
+      try {
+        const data = await rpc('checkin.days_played', {player});
+        if (data.error) {
+          out.innerHTML = `<p class="error-msg">Error: ${data.error.message}</p>`;
+        } else {
+          const {days_played} = data.result;
+          out.innerHTML = `
+            <div class="result-row ${days_played > 0 ? 'found' : 'not-found'}">
+              <span class="badge">Days played</span>
+              <span>${escHtml(player)}: ${days_played}</span>
+            </div>`;
+        }
+      } catch (e) {
+        out.innerHTML = `<p class="error-msg">Request failed.</p>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function getDailyStats() {
+      const out = document.getElementById('ci-daily-results');
+      const start_game_day = parseInt(document.getElementById('ci-daily-start').value, 10);
+      const num_days = parseInt(document.getElementById('ci-daily-count').value, 10);
+      if (isNaN(start_game_day) || isNaN(num_days) || num_days < 1) {
+        out.innerHTML = `<p class="error-msg">Start day and number of days must be positive integers.</p>`; return;
+      }
+      const btn = document.getElementById('ci-daily-btn');
+      btn.disabled = true;
+      try {
+        const [pData, sData] = await Promise.all([
+          rpc('checkin.num_players', {start_game_day, num_days}),
+          rpc('checkin.num_sessions', {start_game_day, num_days}),
+        ]);
+        if (pData.error || sData.error) {
+          out.innerHTML = `<p class="error-msg">Error: ${(pData.error || sData.error).message}</p>`;
+        } else {
+          const players = pData.result.players;
+          const sessions = sData.result.sessions;
+          out.innerHTML = players.map((p, i) => `
+            <div class="result-row info">
+              <span class="badge">Day ${start_game_day + i}</span>
+              <span>${p} player${p !== 1 ? 's' : ''}, ${sessions[i]} session${sessions[i] !== 1 ? 's' : ''}</span>
+            </div>`).join('');
+        }
+      } catch (e) {
+        out.innerHTML = `<p class="error-msg">Request failed.</p>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function getAllPlayers() {
+      const out = document.getElementById('ci-players-results');
+      const btn = document.getElementById('ci-players-btn');
+      btn.disabled = true;
+      try {
+        const data = await rpc('checkin.players', {start_index: 0, count: 50});
+        if (data.error) {
+          out.innerHTML = `<p class="error-msg">Error: ${data.error.message}</p>`;
+        } else {
+          const {total, players} = data.result;
+          if (total === 0) {
+            out.innerHTML = `<div class="result-row not-found"><span class="badge">Empty</span><span>No players yet</span></div>`;
+          } else {
+            out.innerHTML = `<div class="result-row info"><span class="badge">Total</span><span>${total} unique player${total !== 1 ? 's' : ''}</span></div>` +
+              players.map((p, i) => `
+                <div class="result-row existed">
+                  <span class="badge">#${i + 1}</span>
+                  <span>${escHtml(p)}</span>
+                </div>`).join('') +
+              (total > players.length ? `<div class="result-row info"><span class="badge">&#8230;</span><span>${total - players.length} more</span></div>` : '');
           }
         }
       } catch (e) {
