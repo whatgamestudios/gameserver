@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from db import engine, wordlist, seedwords, submissions, player_stats, daily_stats, _14_player_stats, _14_daily_stats
 from board import (
     BOARD_SIZE,
+    _GAME_START,
+    _14_GAME_START,
     _analyse_board,
     _calculate_score,
     _check_words_in_db,
@@ -62,7 +64,7 @@ def rpc(req: RpcRequest):
 @app.post("/14rpc")
 def rpc_14(req: RpcRequest):
     try:
-        return _checkin_rpc(req, _14_player_stats, _14_daily_stats)
+        return _checkin_rpc(req, _14_player_stats, _14_daily_stats, _14_GAME_START)
     except Exception as exc:
         return _error(-32603, f"Internal error: {exc}", req.id)
 
@@ -126,14 +128,14 @@ def _rpc(req: RpcRequest):
         return _result({"score": _calculate_score(words, in_dictionary)}, req.id)
 
     elif req.method == "gameday.current":
-        min_day, max_day = _current_game_days()
+        min_day, max_day = _current_game_days(_GAME_START)
         return _result({"min_day": min_day, "max_day": max_day}, req.id)
 
     elif req.method == "gameday.check":
         day = (req.params or {}).get("day")
         if not isinstance(day, int):
             return _error(-32602, "params.day must be an integer", req.id)
-        min_day, max_day = _current_game_days()
+        min_day, max_day = _current_game_days(_GAME_START)
         valid = min_day <= day <= max_day
         return _result({"valid": valid, "requested_day": day, "min_day": min_day, "max_day": max_day}, req.id)
 
@@ -180,7 +182,7 @@ def _rpc(req: RpcRequest):
             return _error(-32602, f"params.board must be exactly {BOARD_SIZE * BOARD_SIZE} characters", req.id)
 
         # Mirror checkGameDay()
-        min_day, max_day = _current_game_days()
+        min_day, max_day = _current_game_days(_GAME_START)
         if not (min_day <= game_day <= max_day):
             return _error(-32602, f"game_day {game_day} is not valid (valid range: {min_day}–{max_day})", req.id)
 
@@ -316,13 +318,13 @@ def _rpc(req: RpcRequest):
                         "submissions": [{"player": r[0], "board": r[1]} for r in rows]}, req.id)
 
     elif req.method.startswith("checkin."):
-        return _checkin_rpc(req, player_stats, daily_stats)
+        return _checkin_rpc(req, player_stats, daily_stats, _GAME_START)
 
     else:
         return _error(-32601, f"Method not found: {req.method}", req.id)
 
 
-def _checkin_rpc(req: RpcRequest, p_stats: Any, d_stats: Any):
+def _checkin_rpc(req: RpcRequest, p_stats: Any, d_stats: Any, game_start: int):
     if req.method == "checkin.checkin":
         params = req.params or {}
         game_day = params.get("game_day")
@@ -333,7 +335,7 @@ def _checkin_rpc(req: RpcRequest, p_stats: Any, d_stats: Any):
             return _error(-32602, "params.player must be a non-empty string", req.id)
         player = player.strip()
 
-        min_day, max_day = _current_game_days()
+        min_day, max_day = _current_game_days(game_start)
         if not (min_day <= game_day <= max_day):
             return _error(-32602, f"game_day {game_day} is not valid (valid range: {min_day}–{max_day})", req.id)
 

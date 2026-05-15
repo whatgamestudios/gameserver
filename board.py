@@ -98,8 +98,10 @@ def _analyse_board(board: str) -> list:
     return found_words
 
 
-# GMT Monday March 30, 2026 00:00:00 UTC — mirrors Solidity UNIX_TIME_GAME_START
+# GMT Monday March 30, 2026 00:00:00 UTC — Worcadian UNIX_TIME_GAME_START
 _GAME_START = 1774828800
+# December 1, 2024 00:00:00 UTC — 14 Numbers UNIX_TIME_GAME_START
+_14_GAME_START = 1733011200
 _SECONDS_PER_DAY = 86400
 _PLUS_FOURTEEN = 50400   # GMT+14: Kiribati Line Islands
 _MINUS_TWELVE = 43200    # GMT-12: Baker and Howard Island
@@ -148,9 +150,9 @@ def _check_words_in_db(words: list) -> list:
     return [w in found for w in words]
 
 
-def _current_game_days() -> tuple[int, int]:
+def _current_game_days(game_start: int) -> tuple[int, int]:
     """Return (min_day, max_day) for the current moment, matching determineCurrentGameDays()."""
     now = int(time.time())
-    max_day = (now + _PLUS_FOURTEEN - _GAME_START) // _SECONDS_PER_DAY
-    min_day = (now - _MINUS_TWELVE - _GAME_START) // _SECONDS_PER_DAY
+    max_day = (now + _PLUS_FOURTEEN - game_start) // _SECONDS_PER_DAY
+    min_day = (now - _MINUS_TWELVE - game_start) // _SECONDS_PER_DAY
     return min_day, max_day
