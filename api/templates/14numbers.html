@@ -110,6 +110,14 @@
     </section>
 
     <section>
+      <h2>Calc</h2>
+      <p class="hint">Enter an expression using valid numbers (1–10, 25, 50, 75, 100) and operators +&nbsp;-&nbsp;*&nbsp;/. Each number used at most once. Brackets allowed.</p>
+      <input id="calc-input" type="text" placeholder="e.g. 75+25 or (3+7)*25">
+      <button id="calc-btn" onclick="runCalc()">Calculate</button>
+      <div id="calc-results" class="results"></div>
+    </section>
+
+    <section>
       <h2>Points</h2>
       <p class="hint">Exact match = 70 pts. Within 50 of target = (50 &minus; difference) pts. Beyond 50 = 0 pts.</p>
       <input id="pts-target" type="number" placeholder="Target number">
@@ -411,6 +419,126 @@
         btn.disabled = false;
       }
     }
+
+    (function () {
+      const TP=200,TM=201,TX=202,TD=203,TL=204,TR=205;
+      const validNum = n => n!==0 && (n<=10||n===25||n===50||n===75||n===100);
+
+      function scanRight(tok,s,e){
+        let lrc=0;
+        for(let i=s;i<=e;i++){
+          if(tok[i]===TL)lrc++;
+          if(tok[i]===TR){if(lrc===0)return i;lrc--;}
+        }
+        throw 'NoMatchingRightBracket';
+      }
+
+      function applyOp(l,r,op){
+        if(op===TP)return l+r;
+        if(op===TM){if(l<r)throw 'LessThanZero';return l-r;}
+        if(op===TX)return l*r;
+        if(r===0)throw 'DivideByZero';
+        const q=Math.trunc(l/r);
+        if(q*r!==l)throw 'NotDivisible';
+        return q;
+      }
+
+      function getVal(tok,s,e){
+        if(tok[s]===TL){const ri=scanRight(tok,s+1,e);return[proc(tok,s+1,ri-1),ri+1];}
+        return[tok[s],s+1];
+      }
+
+      function proc(tok,s,e){
+        let[res,ns]=getVal(tok,s,e);
+        while(ns<e){
+          const op=tok[ns];
+          let[rv,nns]=getVal(tok,ns+1,e);ns=nns;
+          if(op===TP||op===TM){
+            while(ns<e){
+              const nop=tok[ns];
+              if(nop===TP||nop===TM)break;
+              let[nrv,nnns]=getVal(tok,ns+1,e);
+              rv=applyOp(rv,nrv,nop);ns=nnns;
+            }
+          }
+          res=applyOp(res,rv,op);
+        }
+        return res;
+      }
+
+      window.runCalc=function(){
+        const out=document.getElementById('calc-results');
+        const input=document.getElementById('calc-input').value.trim();
+        try{
+          if(!input)throw 'EmptyInput';
+          const tok=[],used=new Set();
+          let numCount=0,lbc=0,rbc=0,inNum=false,cur=0;
+          const fin=err=>{
+            if(!validNum(cur))throw err;
+            tok.push(cur);
+            if(++numCount>5)throw 'TooManyNumbers';
+            if(used.has(cur))throw 'NumberPreviouslyUsed';
+            used.add(cur);cur=0;inNum=false;
+          };
+          for(let i=0;i<input.length;i++){
+            const c=input[i];
+            if(c>='0'&&c<='9'){
+              if(c==='0'&&!inNum)throw 'LeadingZero';
+              cur=cur*10+(c.charCodeAt(0)-48);inNum=true;
+            }else if('+-*/'.includes(c)){
+              if(i===0)throw 'InvalidStart';
+              if(!inNum&&tok[tok.length-1]!==TR)throw 'OperationAfterNonNumeric';
+              if(inNum)fin('InvalidNumber');
+              tok.push(c==='+'?TP:c==='-'?TM:c==='*'?TX:TD);
+            }else if(c==='('){
+              if(lbc>=5)throw 'TooManyLeftBrackets';
+              if(inNum)throw 'LeftBracketAfterNumeric';
+              tok.push(TL);lbc++;
+            }else if(c===')'){
+              if(i===0)throw 'InvalidStart';
+              if(lbc<=rbc)throw 'RightBracketBeforeLeft';
+              if(!inNum&&tok[tok.length-1]!==TR)throw 'RightBracketAfterNonNumeric';
+              if(inNum)fin('InvalidNumber');
+              tok.push(TR);rbc++;
+            }else{throw 'UnknownSymbol';}
+          }
+          if(lbc!==rbc)throw 'NoMatchingRightBracket';
+          if(!inNum&&tok.length>0&&tok[tok.length-1]!==TR)throw 'EndedOnInvalidCharacter';
+          if(inNum)fin('InvalidNumber');
+          const result=proc(tok,0,tok.length);
+          const nums=[...used].sort((a,b)=>a-b).join(', ');
+          out.innerHTML=`
+            <div class="result-row found">
+              <span class="badge">Result</span>
+              <span>${result}</span>
+            </div>
+            <div class="result-row existed">
+              <span class="badge">Numbers used</span>
+              <span>${nums}</span>
+            </div>`;
+        }catch(e){
+          const msgs={
+            EmptyInput:'Please enter an expression',
+            LeadingZero:'Numbers cannot have leading zeros',
+            InvalidStart:'Expression cannot start with an operator or )',
+            OperationAfterNonNumeric:'Operator must follow a number or )',
+            InvalidNumber:'Invalid number — use 1–10, 25, 50, 75, or 100',
+            LeftBracketAfterNumeric:'( cannot directly follow a number',
+            RightBracketAfterNonNumeric:') must follow a number or )',
+            RightBracketBeforeLeft:'Closing ) before opening (',
+            TooManyLeftBrackets:'Too many brackets (max 5)',
+            NoMatchingRightBracket:'Mismatched brackets',
+            EndedOnInvalidCharacter:'Expression ends unexpectedly',
+            TooManyNumbers:'Too many numbers (max 5)',
+            NumberPreviouslyUsed:'Each number can only be used once',
+            DivideByZero:'Division by zero',
+            NotDivisible:'Division must produce a whole number',
+            LessThanZero:'Intermediate result cannot be negative',
+          };
+          out.innerHTML=`<p class="error-msg">${msgs[e]||e}</p>`;
+        }
+      };
+    })();
 
     function escHtml(s) {
       return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
