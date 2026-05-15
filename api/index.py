@@ -16,7 +16,7 @@ from board import (
     _current_game_days,
     _is_seed_word_on_board,
 )
-from numbers import get_target_value
+from numbers14 import get_target_value
 from templates import INDEX_HTML, WORCADIAN_HTML, NUMBERS14_HTML
 
 _FIVE_YEARS_OF_DAYS = 1826  # mirrors Solidity FIVE_YEARS_OF_DAYS
