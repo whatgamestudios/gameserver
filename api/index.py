@@ -169,6 +169,79 @@ def _rpc_14_handler(req: RpcRequest):
             "result1": result1, "result2": result2, "result3": result3,
         }, req.id)
 
+    elif req.method == "solution.submitbypass":
+        params = req.params or {}
+        game_day = params.get("game_day")
+        user_id = params.get("user_id")
+        part1 = params.get("part1")
+        part2 = params.get("part2")
+        part3 = params.get("part3")
+        if not isinstance(game_day, int):
+            return _error(-32602, "params.game_day must be an integer", req.id)
+        if not isinstance(user_id, str) or not user_id.strip():
+            return _error(-32602, "params.user_id must be a non-empty string", req.id)
+        if not all(isinstance(p, str) for p in (part1, part2, part3)):
+            return _error(-32602, "params.part1/2/3 must be strings", req.id)
+        user_id = user_id.strip()
+
+        try:
+            result1, used1 = calc(part1)
+            result2, used2 = calc(part2)
+            result3, used3 = calc(part3)
+        except CalcError as exc:
+            return _error(-32602, str(exc), req.id)
+
+        if used1 & used2 or used1 & used3 or used2 & used3:
+            overlap = sorted((used1 & used2) | (used1 & used3) | (used2 & used3))
+            return _error(-32602, f"Number(s) {overlap} used in more than one part", req.id)
+
+        target = get_target_value(game_day)
+        score = calc_points(target, result1, result2, result3)
+
+        with engine.connect() as conn:
+            best_score = conn.execute(
+                sa.select(sa.func.max(_14_solutions.c.score))
+                .where(_14_solutions.c.game_day == game_day)
+            ).scalar()
+
+        if best_score is not None and score < best_score:
+            return _result({
+                "status": "not_competitive",
+                "score": score, "best_score": best_score,
+                "result1": result1, "result2": result2, "result3": result3,
+            }, req.id)
+
+        with engine.connect() as conn:
+            dup = conn.execute(
+                sa.select(sa.func.count()).select_from(_14_solutions)
+                .where(_14_solutions.c.game_day == game_day)
+                .where(_14_solutions.c.part1 == part1)
+                .where(_14_solutions.c.part2 == part2)
+                .where(_14_solutions.c.part3 == part3)
+            ).scalar() or 0
+
+        if dup:
+            return _result({
+                "status": "duplicate",
+                "score": score, "best_score": best_score,
+                "result1": result1, "result2": result2, "result3": result3,
+            }, req.id)
+
+        with engine.begin() as conn:
+            conn.execute(_14_solutions.insert().values(
+                game_day=game_day, user_id=user_id,
+                part1=part1, part2=part2, part3=part3,
+                result1=result1, result2=result2, result3=result3,
+                score=score,
+            ))
+
+        return _result({
+            "status": "submitted",
+            "score": score,
+            "best_score": score if best_score is None else max(score, best_score),
+            "result1": result1, "result2": result2, "result3": result3,
+        }, req.id)
+
     elif req.method == "solution.results":
         game_day = (req.params or {}).get("game_day")
         if not isinstance(game_day, int):
